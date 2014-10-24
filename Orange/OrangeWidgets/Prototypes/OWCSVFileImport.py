@@ -12,23 +12,37 @@ import Orange
 from OWWidget import *
 import OWGUI
 
-MakeStatus = Orange.feature.Descriptor.MakeStatus
-
 from OWDataTable import ExampleTableModel
 
+NAME = "CSV File Import"
+DESCRIPTION = "Import CSV files"
+ICON = "icons/CSV.svg"
+
+OUTPUTS = [
+    {"name": "Data",
+     "type": Orange.data.Table,
+     "doc": "Loaded data table"}
+]
+
+PRIORITY = 15
+CATEGORY = "Data"
+KEYWORDS = ["data", "csv", "file", "load", "read"]
+
+MakeStatus = Orange.feature.Descriptor.MakeStatus
+
+
 # Hints used when the sniff_csv cannot determine the dialect.
-DEFAULT_HINTS = \
-    {"quote": "'",
-     "quotechar": "'",
-     "doublequote": False,
-     "quoting": 0,
-     "escapechar": "\\",
-     "delimiter": ",",
-     "has_header": True,
-     "has_orange_header": False,
-     "skipinitialspace": True,
-     "DK": "?",
-     }
+DEFAULT_HINTS = {
+    "delimiter": ",",
+    "quotechar": "'",
+    "doublequote": False,
+    "quoting": csv.QUOTE_MINIMAL,
+    "escapechar": "\\",
+    "skipinitialspace": True,
+    "has_header": True,
+    "has_orange_header": False,
+    "DK": "?",
+}
 
 
 class standard_icons(object):
@@ -89,13 +103,15 @@ class OWCSVFileImport(OWWidget):
                            if item[0] in self.recent_files])
 
         layout = QHBoxLayout()
-        box = OWGUI.widgetBox(self.controlArea, "File", orientation=layout)
+        OWGUI.widgetBox(self.controlArea, "File", orientation=layout)
 
         icons = standard_icons(self)
 
-        self.recent_combo = QComboBox(self, objectName="recent_combo",
-                                      toolTip="Recent files.",
-                                      activated=self.on_select_recent)
+        self.recent_combo = QComboBox(
+            self, objectName="recent_combo",
+            toolTip="Recent files.",
+            activated=self.on_select_recent
+        )
         self.recent_combo.addItems([os.path.basename(p) \
                                     for p in self.recent_files])
 
@@ -111,41 +127,58 @@ class OWCSVFileImport(OWWidget):
         layout.addWidget(self.browse_button)
         layout.addWidget(self.reload_button)
 
+        ###########
+        # Info text
+        ###########
+        box = OWGUI.widgetBox(self.controlArea, "Info")
+        self.infolabel = OWGUI.widgetLabel(box, "")
+        self.infolabel.setWordWrap(True)
+
+        stack = QStackedWidget()
+        self.controlArea.layout().addWiddet(stack)
+
         #################
         # Cell separators
         #################
-        grid_layout = QGridLayout()
-        grid_layout.setVerticalSpacing(4)
-        grid_layout.setHorizontalSpacing(4)
-        box = OWGUI.widgetBox(self.controlArea, "Cell Separator",
-                              orientation=grid_layout)
 
+        import_options = QWidget()
+        grid = QGridLayout()
+        grid.setVerticalSpacing(4)
+        grid.setHorizontalSpacing(4)
+        grid.setContentsMargins(0, 0, 0, 0)
+        import_options.setLayout(grid)
+
+        self.controlArea.layout().addWidget(import_options)
+
+        box = OWGUI.widgetBox(self.controlArea, "Cell Separator",
+                              addToLayout=False)
+        import_options.layout().addWidget(box, 0, 0)
         button_group = QButtonGroup(box)
-        QObject.connect(button_group,
-                        SIGNAL("buttonPressed(int)"),
-                        self.delimiter_changed
-                        )
+        button_group.buttonPressed[int].connect(self.delimiter_changed)
 
         for i, (name, char) in  enumerate(self.DELIMITERS[:-1]):
-            button = QRadioButton(name, box,
-                                  toolTip="Use %r as cell separator" % char)
+            button = QRadioButton(
+                name, box, toolTip="Use %r as cell separator" % char
+            )
             button_group.addButton(button, i)
-            grid_layout.addWidget(button, i / 3, i % 3)
+            box.layout().addWidget(button)
 
-        button = QRadioButton("Other", box,
-                              toolTip="Use other character")
+        button = QRadioButton("Other", box, toolTip="Use a custom character")
 
         button_group.addButton(button, i + 1)
-        grid_layout.addWidget(button, i / 3 + 1, 0)
+        box.layout().addWidget(button)
+
         self.delimiter_button_group = button_group
 
-        self.delimiter_edit = \
-            QLineEdit(objectName="delimiter_edit",
-                      text=self.other_delimiter or self.delimiter,
-                      editingFinished=self.delimiter_changed,
-                      toolTip="Cell delimiter character.")
+        self.delimiter_edit = QLineEdit(
+            objectName="delimiter_edit",
+            text=self.other_delimiter or self.delimiter,
+            editingFinished=self.delimiter_changed,
+            toolTip="Cell delimiter character."
+        )
 
-        grid_layout.addWidget(self.delimiter_edit, i / 3 + 1, 1, -1, -1)
+        ibox = OWGUI.indentedBox(box)
+        ibox.layout().addWidget(self.delimiter_edit)
 
         preset = [d[1] for d in self.DELIMITERS[:-1]]
         if self.delimiter in preset:
@@ -154,7 +187,8 @@ class OWCSVFileImport(OWWidget):
             b.setChecked(True)
             self.delimiter_edit.setEnabled(False)
         else:
-            button.setChecked(True)
+            b = button_group.button(len(self.DELIMITERS) - 1)
+            b.setChecked(True)
             self.delimiter_edit.setEnabled(True)
 
         ###############
@@ -162,54 +196,52 @@ class OWCSVFileImport(OWWidget):
         ###############
         form = QFormLayout()
         box = OWGUI.widgetBox(self.controlArea, "Other Options",
-                              orientation=form)
+                              orientation=form, addToLayout=False)
 
-        self.quote_edit = QLineEdit(objectName="quote_edit",
-                                    text=self.quote,
-                                    editingFinished=self.quote_changed,
-                                    toolTip="Text quote character.")
+        self.quote_edit = QLineEdit(
+            text=self.quote,
+            editingFinished=self.quote_changed,
+            toolTip="Text quote character."
+        )
 
         form.addRow("Quote", self.quote_edit)
 
-        self.missing_edit = \
-            QLineEdit(objectName="missing_edit",
-                          text=self.missing,
-                          editingFinished=self.missing_changed,
-                          toolTip="Missing value flags (separated by a comma)."
-                          )
+        self.missing_edit = QLineEdit(
+            text=self.missing,
+            editingFinished=self.missing_changed,
+            toolTip="Missing value flags (separated by a comma)."
+        )
 
         form.addRow("Missing values", self.missing_edit)
 
-        self.skipinitialspace_check = \
-            QCheckBox(objectName="skipinitialspace_check",
-                  checked=self.skipinitialspace,
-                  text="Skip initial whitespace",
-                  toolTip="Skip any whitespace at the beginning of each cell.",
-                  clicked=self.skipinitialspace_changed
-                  )
+        self.skipinitialspace_check = QCheckBox(
+            checked=self.skipinitialspace,
+            text="Skip initial whitespace",
+            toolTip="Skip any whitespace at the beginning of each cell.",
+            clicked=self.skipinitialspace_changed
+        )
 
         form.addRow(self.skipinitialspace_check)
 
-        self.has_header_check = \
-                QCheckBox(objectName="has_header_check",
-                          checked=self.has_header,
-                          text="Header line",
-                          toolTip="Use the first line as a header",
-                          clicked=self.has_header_changed
-                          )
+        self.has_header_check = QCheckBox(
+            checked=self.has_header,
+            text="Header line",
+            toolTip="Use the first line as a header",
+            clicked=self.has_header_changed
+        )
 
         form.addRow(self.has_header_check)
 
-        self.has_orange_header_check = \
-                QCheckBox(objectName="has_orange_header_check",
-                          checked=self.has_orange_header,
-                          text="Has orange variable type definitions",
-                          toolTip="Use second and third line as a orange style"
-                                  "'.tab' format feature definitions.",
-                          clicked=self.has_orange_header_changed
-                          )
+        self.has_orange_header_check = QCheckBox(
+            checked=self.has_orange_header,
+            text="Has orange variable type definitions",
+            toolTip="Use second and third line as a orange style"
+                    "'.tab' format feature definitions.",
+            clicked=self.has_orange_header_changed
+        )
 
         form.addRow(self.has_orange_header_check)
+        import_options.layout().addWidget(box, 0, 1)
 
         box = OWGUI.widgetBox(self.controlArea, "Preview")
         self.preview_view = QTableView()
@@ -245,6 +277,7 @@ class OWCSVFileImport(OWWidget):
 
     def delimiter_changed(self, index=-1):
         self.delimiter = self.DELIMITERS[index][1]
+        self.delimiter_edit.setEnabled(self.delimiter is None)
         if self.delimiter is None:
             self.other_delimiter = str(self.delimiter_edit.text())
         self.update_preview()
@@ -423,5 +456,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = OWCSVFileImport()
     w.show()
+    w.raise_()
     app.exec_()
     w.saveSettings()
