@@ -8,6 +8,7 @@ import csv
 import unicodedata
 from StringIO import StringIO
 
+from PyQt4.QtCore import pyqtSignal as Signal
 import Orange
 
 from OWWidget import *
@@ -15,9 +16,9 @@ import OWGUI
 
 from OWDataTable import ExampleTableModel
 
-NAME = "CSV File Import"
-DESCRIPTION = "Import CSV files"
-ICON = "icons/CSV.svg"
+NAME = "File Import"
+DESCRIPTION = "Import files"
+ICON = "icons/File.svg"
 
 OUTPUTS = [
     {"name": "Data",
@@ -27,7 +28,7 @@ OUTPUTS = [
 
 PRIORITY = 15
 CATEGORY = "Data"
-KEYWORDS = ["data", "csv", "file", "load", "read"]
+KEYWORDS = ["data", "import", "file", "load", "read"]
 
 MakeStatus = Orange.feature.Descriptor.MakeStatus
 
@@ -63,9 +64,157 @@ class standard_icons(object):
         return self.style.standardIcon(QStyle.SP_BrowserReload)
 
 
+class Dialect(csv.Dialect):
+    def __init__(self, delimiter, quotechar, escapechar, doublequote,
+                 skipinitialspace, quoting=csv.QUOTE_MINIMAL):
+        self.delimiter = delimiter
+        self.quotechar = quotechar
+        self.escapechar = escapechar
+        self.doublequote = doublequote
+        self.skipinitialspace = skipinitialspace
+        self.quoting = quoting
+        self.lineterminator = "\r\n"
+
+        csv.Dialect.__init__(self)
+
+
 class CSVOptionsWidget(QWidget):
-    def __init__(self, parent=None):
-        super(CSVOptionsWidget, self).__init__(parent)
+    _PresetDelimiters = [
+        ("Comma", ","),
+        ("Tab", "\t"),
+        ("Semicolon", ";"),
+        ("Space", " "),
+    ]
+
+    format_changed = Signal()
+
+    def __init__(self, parent=None, **kwargs):
+        self._delimiter_idx = 0
+        self._delimiter_custom = "|"
+        self._delimiter = ","
+        self._quotechar = "'"
+        self._escapechar = "\\"
+        self._doublequote = True
+        self._skipinitialspace = False
+
+        self._hasheader = False
+
+        super(QWidget, self).__init__(parent, **kwargs)
+
+        layout = QVBoxLayout()
+        # Dialect options
+
+        form = QFormLayout()
+        self.delimiters_cb = QComboBox()
+        self.delimiters_cb.addItems(
+            [name for name, _ in self._PresetDelimiters]
+        )
+        self.delimiters_cb.insertSeparator(self.delimiters_cb.count())
+        self.delimiters_cb.addItem("Other")
+
+        self.delimiters_cb.setCurrentIndex(self._delimiter_idx)
+        self.delimiters_cb.activated.connect(self._on_delimiter_idx_changed)
+
+        validator = QRegExpValidator(QRegExp("."))
+        self.delimiteredit = QLineEdit(
+            enabled=False
+        )
+        self.delimiteredit.setValidator(validator)
+        self.delimiteredit.textChanged.connect(self._on_delimiter_changed)
+
+        delimlayout = QHBoxLayout()
+        delimlayout.setContentsMargins(0, 0, 0, 0)
+        delimlayout.addWidget(self.delimiters_cb)
+        delimlayout.addWidget(self.delimiteredit)
+
+        self.quoteedit = QLineEdit(self._quotechar)
+        self.quoteedit.setValidator(validator)
+        self.quoteedit.textChanged.connect(self._on_quotechar_changed)
+
+        self.escapeedit = QLineEdit(self._escapechar)
+        self.escapeedit.setValidator(validator)
+
+        self.skipinitialspace_cb = QCheckBox(
+            checked=self._skipinitialspace
+        )
+
+        form.addRow("Cell delimiters", delimlayout)
+        form.addRow("Quote", self.quoteedit)
+        form.addRow("Escape character", self.escapeedit)
+        form.addRow("Skip initial white space", QCheckBox())
+
+        form.addRow(QFrame(self, frameShape=QFrame.HLine))
+        # File format option
+        form.addRow("Missing values", QLineEdit())
+        layout.addLayout(form)
+
+#         form.addRow("", QCheckBox("Has header"))
+#         form.addRow("", QCheckBox("Skip empty lines"))
+#         form.addRow("", QCheckBox("Has header"))
+#         form.addRow("", QCheckBox("Has orange type defs"))
+
+        layout.addWidget(QCheckBox("Has header"))
+        layout.addWidget(QCheckBox("Skip empty lines"))
+        layout.addWidget(QCheckBox("Has header"))
+        layout.addWidget(QCheckBox("Has orange type definitions"))
+
+        self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+
+    def dialect(self):
+        """
+        Return the current state as a Dialect instance.
+        """
+        if self._delimiter_idx >= len(self._PresetDelimiters):
+            delimiter = self._delimiter_custom
+        else:
+            _, delimiter = self._PresetDelimiters[self._delimiter_idx]
+
+        return Dialect(delimiter, self._quotechar, self._escapechar,
+                       self._doublequote, self._skipinitialspace)
+
+    def setDialect(self, dialect):
+        """
+        Set the current state to match dialect instance.
+        """
+        delimiter = dialect.delimiter
+        try:
+            index = [d for _, d in self._PresetDelimiters].index(delimiter)
+        except ValueError:
+            index = -1
+
+        self.delimter_cb.setCurrentIndex(index)
+
+        if index == -1:
+            self.custom_delimiter_te.setText(delimiter)
+
+        self.quoteedit.setText(dialect.quotechar)
+        self.escapeedit.setText(dialect.escapechar)
+        self.skipinitialspace_cb.setChecked(dialect.skipinitialspace)
+
+    def has_header(self):
+        return self._hasheader_cb.isChecked()
+
+    def _on_delimiter_idx_changed(self, index):
+        self.delimiteredit.setEnabled(index >= len(self._PresetDelimiters))
+        self._delimiter_idx = index
+        self.format_changed.emit()
+
+    def _on_delimiter_changed(self, delimiter):
+        self._delimiter_custom = delimiter
+        self.format_changed.emit()
+
+    def _on_quotechar_changed(self, quotechar):
+        self._quotechar = quotechar
+        self.format_changed.emit()
+
+    def _on_escapechar_changed(self, escapechar):
+        self._escapechar = escapechar
+        self.format_changed.emit()
+
+    def _on_skipspace_changed(self, skipinitialspace):
+        self._skipinitialspace = skipinitialspace
+        self.format_changed.emit()
 
 
 def cb_append_file_list(combobox, paths):
@@ -91,10 +240,33 @@ class FileNameContextHandler(ContextHandler):
         return 2 if os.path.samefile(context.filename, filename) else 0
 
 
+FILEFORMATS = (
+    "Tab-delimited files (*.tab)\n"
+    "Tab-delimited simplified (*.txt)\n"
+    "Basket files (*.basket)\n"
+    "C4.5 files (*.data)\n"
+    "Comma-separated values (*.csv)\n"
+    "Tab-separated values (*.tsv)\n"
+    "Weka (*.arff)\n"
+    "All files(*.*)"
+)
+
+# Loaders
+from collections import namedtuple
+
+OrangeTab = namedtuple("OrangeTab", ["DK", "DC"])
+OrangeTxt = namedtuple("OrangeTxt", ["DK", "DC"])
+C45 = namedtuple("C45", ["DK", "DC"])
+Basket = namedtuple("Basket", ["DK", "DC"])
+CSV = namedtuple("CSV", ["NA", "dialect", "has_header"])
+TSV = namedtuple("TSV", ["NA", "dialect", "has_header"])
+Arff = namedtuple("Arff", [])
+
+
 class OWCSVFileImport(OWWidget):
     settingsList = ["selected_file", "recent_files", "hints",
-                    "show_advenced", "create_new_on", ]
-    contextHanders = {"": FileNameContextHandler()}
+                    "show_advenced", "create_new_on"]
+    contextHandlers = {"": FileNameContextHandler()}
 
     DELIMITERS = [
         ("Tab", "\t"),
@@ -131,7 +303,7 @@ class OWCSVFileImport(OWWidget):
 
         self.hints = dict([item for item in self.hints.items()
                            if item[0] in self.recent_files])
-        self.load_params = {}
+        self._loaders = {}
 
         layout = QHBoxLayout()
         OWGUI.widgetBox(self.controlArea, "File", orientation=layout)
@@ -167,15 +339,20 @@ class OWCSVFileImport(OWWidget):
         # Info text
         ###########
         box = OWGUI.widgetBox(self.controlArea, "Info")
-        self.infolabel = OWGUI.widgetLabel(box, "")
-        self.infolabel.setWordWrap(True)
+        self.infoa = OWGUI.widgetLabel(box, "No data loaded.")
+        self.infob = OWGUI.widgetLabel(box, " ")
+        self.warnings = OWGUI.widgetLabel(box, " ")
+
+        # Set word wrap so long warnings won't expand the widget
+        self.warnings.setWordWrap(True)
+        self.warnings.setSizePolicy(QSizePolicy.Ignored,
+                                    QSizePolicy.MinimumExpanding)
 
         singlecharvalidator = QRegExpValidator(QRegExp("."))
 
         #################
         # Cell separators
         #################
-
         import_options = QWidget()
         grid = QGridLayout()
         grid.setVerticalSpacing(4)
@@ -280,9 +457,9 @@ class OWCSVFileImport(OWWidget):
 
         self.resize(450, 500)
         if self.recent_files:
-            QTimer.singleShot(1,
-                    lambda: self.set_selected_file(self.recent_files[0])
-                    )
+            QTimer.singleShot(
+                0, lambda: self.set_selected_file(self.recent_files[0])
+            )
 
     def activate_recent(self, index):
         """
@@ -313,9 +490,12 @@ class OWCSVFileImport(OWWidget):
                     QDesktopServices.storageLocation(
                         QDesktopServices.DocumentsLocation)
                 )
-        path = unicode(QFileDialog.getOpenFileName(self, "Open File", startdir))
+        path, filter_idx = QFileDialog.getOpenFileNameAndFilter(
+            self, "Open Data File", startdir, FILEFORMATS
+        )
+
         if path:
-            self.set_selected_file(path)
+            self.set_selected_file(path, loader_hint=filter_idx)
             return QDialog.Accepted
         else:
             return QDialog.Rejected
@@ -352,7 +532,7 @@ class OWCSVFileImport(OWWidget):
         self.has_orange_header = self.has_orange_header_check.isChecked()
         self.update_preview()
 
-    def set_selected_file(self, filename):
+    def set_selected_file(self, filename, loader=None):
         index_to_remove = None
         if filename in self.recent_files:
             index_to_remove = self.recent_files.index(filename)
@@ -368,64 +548,95 @@ class OWCSVFileImport(OWWidget):
             self.recent_files.pop(index_to_remove + 1)
 
         self.warning(1)
-        self.closeContext("")
-        self.openContext("", filename)
+#         self.closeContext("")
+#         self.openContext("", filename)
 
-        if filename in self.hints:
-            hints = self.hints[filename]
+        if loader is None:
+            loader = self.loader_for_path(filename)
+
+        self.set_loader(loader)
+
+#         if filename in self.hints:
+#             hints = self.hints[filename]
+#         else:
+#             try:
+#                 hints = sniff_csv(filename)
+#             except csv.Error, ex:
+#                 self.warning(1, str(ex))
+#                 hints = dict(DEFAULT_HINTS)
+# 
+#         if not hints:
+#             hints = dict(DEFAULT_HINTS)
+# 
+#         self.hints[filename] = hints
+# 
+#         delimiter = hints["delimiter"]
+# 
+#         # Update the widget state (GUI) from the saved hints for the file
+#         preset = [d[1] for d in self.DELIMITERS[:-1]]
+#         if delimiter not in preset:
+#             self.delimiter = None
+#             self.other_delimiter = delimiter
+#             index = len(self.DELIMITERS) - 1
+#             button = self.delimiter_button_group.button(index)
+#             button.setChecked(True)
+#             self.delimiter_edit.setText(self.other_delimiter)
+#             self.delimiter_edit.setEnabled(True)
+#         else:
+#             self.delimiter = delimiter
+#             index = preset.index(delimiter)
+#             button = self.delimiter_button_group.button(index)
+#             button.setChecked(True)
+#             self.delimiter_edit.setEnabled(False)
+# 
+#         self.quote = hints["quotechar"]
+#         self.quote_edit.setText(self.quote)
+# 
+#         self.missing = hints["DK"] or ""
+#         self.missing_edit.setText(self.missing)
+# 
+#         self.has_header = hints["has_header"]
+#         self.has_header_check.setChecked(self.has_header)
+# 
+#         self.has_orange_header = hints["has_orange_header"]
+#         self.has_orange_header_check.setChecked(self.has_orange_header)
+# 
+# #         self.skipinitialspace = hints["skipinitialspace"]
+# #         self.skipinitialspace_check.setChecked(self.skipinitialspace)
+# 
+#         self.selected_file = filename
+#         self.selected_file_head = []
+#         with open(self.selected_file, "rU") as f:
+#             for i, line in zip(range(30), f):
+#                 self.selected_file_head.append(line)
+# 
+#         self.update_preview()
+
+    def loader_for_path(self, path):
+        if path in self._loaders:
+            return self._loaders[path]
         else:
-            try:
-                hints = sniff_csv(filename)
-            except csv.Error, ex:
-                self.warning(1, str(ex))
-                hints = dict(DEFAULT_HINTS)
+            return loader_for_path(path)
 
-        if not hints:
-            hints = dict(DEFAULT_HINTS)
+    def set_loader(self, loader):
+        if self.selected_file:
+            self._loaders[self.selected_file] = loader
 
-        self.hints[filename] = hints
-
-        delimiter = hints["delimiter"]
-
-        # Update the widget state (GUI) from the saved hints for the file
-        preset = [d[1] for d in self.DELIMITERS[:-1]]
-        if delimiter not in preset:
-            self.delimiter = None
-            self.other_delimiter = delimiter
-            index = len(self.DELIMITERS) - 1
-            button = self.delimiter_button_group.button(index)
-            button.setChecked(True)
-            self.delimiter_edit.setText(self.other_delimiter)
-            self.delimiter_edit.setEnabled(True)
+        self._loader = loader
+        if isinstance(loader, OrangeTab):
+            self.addvancedstack.setCurrentWidget(self.taboptions)
+        elif isinstance(loader, OrangeTxt):
+            self.advancedstack.setCurrentWidget(self.taboptions)
+        elif isinstance(loader, Basket):
+            pass
+        elif isinstance(loader, (CSV, TSV)):
+            self.advancedstack.setCurrentWidget(self.csvoptions)
+        elif isinstance(loader, C45):
+            pass
+        elif isinstance(loader, Arff):
+            pass
         else:
-            self.delimiter = delimiter
-            index = preset.index(delimiter)
-            button = self.delimiter_button_group.button(index)
-            button.setChecked(True)
-            self.delimiter_edit.setEnabled(False)
-
-        self.quote = hints["quotechar"]
-        self.quote_edit.setText(self.quote)
-
-        self.missing = hints["DK"] or ""
-        self.missing_edit.setText(self.missing)
-
-        self.has_header = hints["has_header"]
-        self.has_header_check.setChecked(self.has_header)
-
-        self.has_orange_header = hints["has_orange_header"]
-        self.has_orange_header_check.setChecked(self.has_orange_header)
-
-#         self.skipinitialspace = hints["skipinitialspace"]
-#         self.skipinitialspace_check.setChecked(self.skipinitialspace)
-
-        self.selected_file = filename
-        self.selected_file_head = []
-        with open(self.selected_file, "rU") as f:
-            for i, line in zip(range(30), f):
-                self.selected_file_head.append(line)
-
-        self.update_preview()
+            assert False
 
     def update_preview(self):
         self.error(0)
@@ -439,7 +650,6 @@ class OWCSVFileImport(OWWidget):
             hints["delimiter"] = self.delimiter or self.other_delimiter
             hints["has_header"] = self.has_header
             hints["has_orange_header"] = self.has_orange_header
-#             hints["skipinitialspace"] = self.skipinitialspace
             hints["DK"] = self.missing or None
             try:
                 data = Orange.data.io.load_csv(head, delimiter=self.delimiter,
@@ -484,6 +694,13 @@ class OWCSVFileImport(OWWidget):
                 data = None
         self.send("Data", data)
 
+    def settingsFromWidgetCallback(self, handler, context):
+        context.filename = self.selected_file or ""
+        context.symbolDC, context.symbolDK = self.symbolDC, self.symbolDK
+
+    def settingsToWidgetCallback(self, handler, context):
+        self.symbolDC, self.symbolDK = context.symbolDC, context.symbolDK
+
 
 def sniff_csv(file):
     snifer = csv.Sniffer()
@@ -505,6 +722,37 @@ def sniff_csv(file):
             "skipinitialspace": True,
             "DK": None,
             }
+
+
+def _call(f, *args, **kwargs):
+    return f(*args, **kwargs)
+
+# Make any KernelWarning raise an error if called through the '_call' function
+# defined above.
+warnings.filterwarnings(
+    "error", ".*", Orange.core.KernelWarning,
+    __name__, _call.func_code.co_firstlineno + 1
+)
+
+
+def load_tab(filename, createNewOn=2, na_values=set(["?", "~", "NA"])):
+    argdict = {"createNewOn": createNewOn}
+    data = None
+    try:
+        return _call(Orange.data.Table, filename, **argdict)
+    except Exception as ex:
+        if "is being loaded as" in str(ex):
+            try:
+                data = Orange.data.Table(filename, **argdict)
+            except Exception:
+                pass
+
+        if data is None:
+            exc_type, exc_value = type(ex), ex.args
+            return (exc_type, exc_value, str(ex))
+
+
+
 
 if __name__ == "__main__":
     import sys
