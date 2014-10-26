@@ -336,7 +336,7 @@ class OWSelectData(OWWidget):
         self.currentVals = []
         for i in range(0, self.lbVals.count()):
             if self.lbVals.item(i).isSelected():
-                self.currentVals.append(str(self.lbVals.item(i).text()))
+                self.currentVals.append(str(self.lbVals.item(i).text().toUtf8()))
 
 
     def OnPurgeChange(self):
@@ -542,7 +542,7 @@ class OWSelectData(OWWidget):
                 selectedItemNames = []
                 for i in range(self.lbVals.count()):
                     if self.lbVals.item(i).isSelected():
-                        selectedItemNames.append(str(self.lbVals.item(i).text()))
+                        selectedItemNames.append(str(self.lbVals.item(i).text().toUtf8()))
                 self.lbVals.clear()
                 curVarValues = []
                 for value in self.currentVar:
