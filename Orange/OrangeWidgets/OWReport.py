@@ -195,7 +195,7 @@ class ReportWindow(OWWidget):
             '    </div>'
             '</div>'
         ) % (widnode.elementId, widnode.elementId, widnode.name,
-             widnode.time, widnode.data)
+             widnode.time.decode('utf-8'), widnode.data)
 
         widnode.content = newEntry
 
